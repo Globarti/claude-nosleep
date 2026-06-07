@@ -22,7 +22,11 @@ from pathlib import Path
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 SESSIONS_DIR = Path.home() / ".claude" / "sessions"
-STATE_FILE = Path("/tmp/claude-nosleep-state.json")
+NOSLEEP_DIR = Path.home() / ".claude" / "nosleep"
+# State lives under the user's home (0600), NOT /tmp — it contains the last
+# prompt + recap of every session, which is private. /tmp is world-readable.
+STATE_FILE = NOSLEEP_DIR / "state.json"
+LOG_FILE = NOSLEEP_DIR / "watch.log"
 
 # Activity thresholds
 CPU_WORKING_THRESHOLD = 2.0    # %CPU above which a session is treated as "working" (legacy fallback)
@@ -184,10 +188,27 @@ def get_cwd(pid: int):
 
 
 def cwd_to_project_dir(cwd: str | None):
+    """Best-effort map cwd → Claude's project dir using Claude's own encoding
+    (slashes → dashes). This encoding is lossy/ambiguous (a literal '-' in a
+    path component is indistinguishable from a '/'), so callers that have a
+    sessionId should prefer find_jsonl_by_session_id(), which is exact.
+    """
     if not cwd:
         return None
-    # Claude encodes cwd as -Users-foo-bar
     return PROJECTS_DIR / ("-" + cwd.replace("/", "-").lstrip("-"))
+
+
+def find_jsonl_by_session_id(session_id: str):
+    """Find <session_id>.jsonl anywhere under PROJECTS_DIR. Session IDs are
+    globally unique UUIDs, so this is exact and immune to the lossy cwd→dir
+    encoding (dirs containing '-' in a path component, etc.)."""
+    if not session_id:
+        return None
+    try:
+        matches = list(PROJECTS_DIR.glob(f"*/{session_id}.jsonl"))
+    except OSError:
+        return None
+    return matches[0] if matches else None
 
 
 def latest_jsonl(project_dir: Path):
@@ -214,14 +235,17 @@ def session_jsonl_for_pid(pid: int, cwd: str | None):
     except (OSError, json.JSONDecodeError):
         return None
     session_id = data.get("sessionId")
+    if not session_id:
+        return None
+    # Try the encoded-cwd path first (cheap), then fall back to an exact glob
+    # by sessionId so a '-' in a directory name doesn't break the lookup.
     sess_cwd = data.get("cwd") or cwd
-    if not session_id or not sess_cwd:
-        return None
     proj_dir = cwd_to_project_dir(sess_cwd)
-    if not proj_dir:
-        return None
-    jsonl = proj_dir / f"{session_id}.jsonl"
-    return jsonl if jsonl.is_file() else None
+    if proj_dir:
+        jsonl = proj_dir / f"{session_id}.jsonl"
+        if jsonl.is_file():
+            return jsonl
+    return find_jsonl_by_session_id(session_id)
 
 
 def tail_last_n(path: Path, n: int = 30):
@@ -232,10 +256,18 @@ def tail_last_n(path: Path, n: int = 30):
             size = f.tell()
             # ~3KB per event is a generous upper bound for jsonl entries
             chunk_size = min(size, max(64 * 1024, n * 3 * 1024))
+            partial = chunk_size < size  # seek may land mid-line
             f.seek(-chunk_size, 2)
-            data = f.read().decode("utf-8", errors="replace")
+            raw = f.read()
     except OSError:
         return []
+    # If we didn't read from the very start, the first line is almost certainly
+    # a truncated fragment of a JSON object — drop it so we only parse whole
+    # lines (otherwise json.loads fails on it and we'd silently lose an event).
+    if partial:
+        nl = raw.find(b"\n")
+        raw = raw[nl + 1:] if nl != -1 else b""
+    data = raw.decode("utf-8", errors="replace")
     lines = [l for l in data.splitlines() if l.strip()]
     parsed = []
     for line in lines[-n:]:
@@ -469,7 +501,13 @@ def collect():
 
 
 def apply_pmset(should_block: bool):
-    """Set pmset disablesleep on both AC and battery."""
+    """Set pmset disablesleep on both AC and battery.
+
+    Returns "ok" if the desired state is in effect, "noop" if already correct,
+    or "error" if a sudo pmset call failed — the caller surfaces that so a
+    misconfigured NOPASSWD sudo doesn't fail silently (the daemon would look
+    alive while doing nothing).
+    """
     target = "1" if should_block else "0"
     # check current state to avoid unnecessary sudo writes
     try:
@@ -479,35 +517,60 @@ def apply_pmset(should_block: bool):
     except subprocess.CalledProcessError:
         current = None
     if current == target:
-        return False
-    subprocess.run(
-        ["sudo", "-n", "pmset", "-c", "disablesleep", target],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
-    subprocess.run(
-        ["sudo", "-n", "pmset", "-b", "disablesleep", target],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
-    return True
+        return "noop"
+    failed = False
+    for power in ("-c", "-b"):
+        r = subprocess.run(
+            ["sudo", "-n", "pmset", power, "disablesleep", target],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
+        )
+        if r.returncode != 0:
+            failed = True
+            sys.stderr.write(
+                f"claude-watch: `sudo -n pmset {power} disablesleep {target}` "
+                f"failed (rc={r.returncode}): {(r.stderr or '').strip()}. "
+                f"Is NOPASSWD sudo for pmset configured?\n"
+            )
+    return "error" if failed else "ok"
 
 
-def write_state(sessions, blocking):
+def write_state(sessions, blocking, pmset_status=None):
     payload = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "sessions": sessions,
         "blocking": blocking,
+        "pmset_status": pmset_status,
     }
-    STATE_FILE.write_text(json.dumps(payload, indent=2))
+    # The state holds private prompts/recaps → user-only (0600), under $HOME.
+    try:
+        NOSLEEP_DIR.mkdir(parents=True, exist_ok=True)
+        # Write to a temp file then rename so readers never see a half-written
+        # file, and force 0600 regardless of umask.
+        tmp = STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, STATE_FILE)
+        os.chmod(STATE_FILE, 0o600)
+    except OSError as exc:
+        sys.stderr.write(f"claude-watch: could not write state: {exc!r}\n")
 
 
-def emit_swiftbar(sessions, blocking):
+def emit_swiftbar(sessions, blocking, pmset_status=None):
     working = [s for s in sessions if s["state"] == "working"]
     idle = [s for s in sessions if s["state"] == "idle"]
     n_total = len(sessions)
     n_work = len(working)
 
+    pmset_failed = pmset_status == "error"
+
     # Menu bar title — compact count. ⚡ N/total when working, 🌙 total when idle.
-    if n_total == 0:
+    # If pmset writes are failing, flag it so a misconfigured NOPASSWD sudo is
+    # visible rather than silently doing nothing.
+    if pmset_failed:
+        sf = "exclamationmark.triangle.fill"
+        title = f"{n_work}/{n_total}!" if n_total else "!"
+        color = "#FF9500"
+    elif n_total == 0:
         sf = "moon.zzz.fill"
         title = "0"
         color = "#8E8E93"
@@ -522,6 +585,8 @@ def emit_swiftbar(sessions, blocking):
 
     print(f"{title} | sfimage={sf} sfcolor={color} sfsize=16 size=13 color={color}")
     print("---")
+    if pmset_failed:
+        print("⚠ pmset failed — sleep NOT controlled. Check NOPASSWD sudo for pmset. | color=#FF9500 sfimage=exclamationmark.triangle.fill")
     if blocking:
         print(f"Mac stays awake (sleep blocked) | sfimage=lock.fill sfcolor=#FF3B30")
     else:
@@ -613,13 +678,13 @@ def emit_swiftbar(sessions, blocking):
     print("---")
     print(f"Refresh now | refresh=true sfimage=arrow.clockwise")
     print(f"Open state JSON | bash=open param1={STATE_FILE} terminal=false sfimage=doc.text")
-    print(f"Open watcher log | bash=open param1=/tmp/claude-nosleep.log terminal=false sfimage=text.alignleft")
+    print(f"Open watcher log | bash=open param1={LOG_FILE} terminal=false sfimage=text.alignleft")
     print("---")
     print("About Claude No-Sleep | sfimage=info.circle")
     print("--Blocks Mac sleep while Claude Code sessions are working. | font=Menlo size=11")
     print("--made by Thebartglowacki@gmail.com | font=Menlo size=11 color=gray")
     print(f"--Watcher: ~/.claude/nosleep/claude-watch.py | font=Menlo size=10 color=gray")
-    print(f"--Threshold: CPU ≥ 2% per claude process | font=Menlo size=10 color=gray")
+    print(f"--Signal: Claude's busy/idle flag (CPU is fallback) | font=Menlo size=10 color=gray")
     print(f"--Polling: every 30s (launchd) | font=Menlo size=10 color=gray")
     print("-----")
     print(f"--Open watcher source | bash=open param1={Path.home()}/.claude/nosleep/claude-watch.py terminal=false")
@@ -644,11 +709,19 @@ def main():
     blocking = any(s["state"] == "working" for s in sessions)
 
     if mode == "apply":
-        apply_pmset(blocking)
-        write_state(sessions, blocking)
+        pmset_status = apply_pmset(blocking)
+        write_state(sessions, blocking, pmset_status)
+        if pmset_status == "error":
+            sys.exit(1)
     else:
-        write_state(sessions, blocking)
-        emit_swiftbar(sessions, blocking)
+        # status mode never writes pmset; reuse whatever --apply last recorded.
+        prev = None
+        try:
+            prev = json.loads(STATE_FILE.read_text()).get("pmset_status")
+        except (OSError, json.JSONDecodeError):
+            pass
+        write_state(sessions, blocking, prev)
+        emit_swiftbar(sessions, blocking, prev)
 
 
 if __name__ == "__main__":

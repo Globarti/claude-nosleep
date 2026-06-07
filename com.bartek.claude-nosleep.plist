@@ -4,19 +4,18 @@
 <dict>
     <key>Label</key>
     <string>com.bartek.claude-nosleep</string>
+    <!-- Portable: bash expands $HOME at runtime, so this plist works for any
+         user without editing paths. Output is logged under the user's home. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/bartlomiejglowacki/.claude/nosleep/claude-watch.py</string>
-        <string>--apply</string>
+        <string>/bin/bash</string>
+        <string>-lc</string>
+        <string>exec "$HOME/.claude/nosleep/claude-watch.py" --apply &gt;&gt; "$HOME/.claude/nosleep/watch.log" 2&gt;&amp;1</string>
     </array>
     <key>StartInterval</key>
     <integer>30</integer>
     <key>RunAtLoad</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/claude-nosleep.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/claude-nosleep.err</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>

@@ -4,7 +4,9 @@
 
 A macOS menu bar app that blocks system sleep **only while a Claude Code agent is actually doing work**. Walks away from the laptop, agent keeps running. Work ends, Mac sleeps like normal.
 
-![Menu bar screenshot](docs/screenshots/menubar.png)
+![Close the lid. Keep the agent.](docs/assets/hero-walking.jpg)
+
+<sub>Photo: Roberto Hund / Pexels</sub>
 
 **Full story:** [globarti.github.io/claude-nosleep](https://globarti.github.io/claude-nosleep/)
 
@@ -45,7 +47,16 @@ brew install --cask swiftbar jordanbaird-ice    # Ice fixes notch overflow
 
 git clone https://github.com/Globarti/claude-nosleep.git
 cd claude-nosleep
+./install.sh                                     # copies files, loads launchd
+open -a SwiftBar
+```
 
+`install.sh` is portable (uses `$HOME`, no hardcoded paths) and idempotent.
+It prints the one manual step left: granting passwordless sudo for `pmset`.
+
+<details><summary>…or do it by hand</summary>
+
+```bash
 mkdir -p ~/.claude/nosleep ~/SwiftBarPlugins
 cp claude-watch.py focus-tty.sh ~/.claude/nosleep/
 chmod +x ~/.claude/nosleep/{claude-watch.py,focus-tty.sh}
@@ -59,6 +70,13 @@ launchctl load ~/Library/LaunchAgents/com.bartek.claude-nosleep.plist
 
 open -a SwiftBar
 open -a Ice
+```
+</details>
+
+Then grant passwordless sudo for `pmset` (the watcher can't toggle sleep without it):
+
+```bash
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee /etc/sudoers.d/claude-nosleep
 ```
 
 Verify:
@@ -74,6 +92,13 @@ pmset -g | grep SleepDisabled                  # 1 when something is working
 - Claude Code installed
 - NOPASSWD sudo for `pmset` (or full NOPASSWD: ALL)
 - Python 3.9+ (stdlib only)
+
+## Privacy
+
+The watcher writes its state to `~/.claude/nosleep/state.json` with `0600`
+permissions (owner-only) — it contains the last prompt + recap of each session,
+so it deliberately stays out of world-readable `/tmp`. Nothing leaves your
+machine; there is no network code.
 
 ## Lid-closed sleep
 
