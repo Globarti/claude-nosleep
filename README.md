@@ -84,7 +84,7 @@ pmset -g | grep SleepDisabled                  # 1 when something is working
 - Keep your **display** on (sleep is whole-system; the screen can dim freely).
 - Watch Cursor / Aider / Codex CLI — only Claude Code processes. PRs welcome.
 - Jiggle the mouse or simulate keypresses.
-- Ship as a notarized DMG. Read the 350-line Python file.
+- Ship as a notarized DMG. Read the single ~650-line Python file.
 
 ## License
 
