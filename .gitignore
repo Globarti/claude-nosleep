@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+*.err
+/private/tmp/
+__pycache__/
+*.pyc

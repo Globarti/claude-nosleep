@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude No-Sleep — Close the lid. Keep the agent.</title>
+<meta name="description" content="A macOS menu bar app that blocks system sleep only while Claude Code agents are actually working. Stop babysitting your laptop.">
+<meta property="og:title" content="Claude No-Sleep">
+<meta property="og:description" content="Close the lid. Keep the agent. A macOS menu bar app for vibe coders who run long Claude Code sessions.">
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --panel: #13141a;
+    --panel-2: #1c1d24;
+    --border: #26272f;
+    --text: #e6e6eb;
+    --muted: #8a8a93;
+    --accent: #34c759;
+    --warn: #ff3b30;
+    --link: #62adff;
+    --code-bg: #15161d;
+    --serif: "Charter", "Iowan Old Style", Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  body { line-height: 1.55; }
+  a { color: var(--link); text-decoration: none; border-bottom: 1px solid rgba(98,173,255,0.3); }
+  a:hover { border-bottom-color: var(--link); }
+  code { font-family: var(--mono); background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; }
+  pre { font-family: var(--mono); background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 60px 0; }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 60px 24px 120px; }
+
+  /* HERO */
+  .hero { padding-top: 40px; padding-bottom: 60px; text-align: left; }
+  .hero .lock { display: inline-block; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--muted); font-family: var(--mono); margin-bottom: 28px; }
+  .hero h1 { font-family: var(--serif); font-size: 56px; line-height: 1.05; margin: 0 0 18px; letter-spacing: -0.02em; font-weight: 500; }
+  .hero h1 .accent { color: var(--accent); }
+  .hero p.sub { font-size: 19px; color: var(--muted); max-width: 580px; margin: 0 0 32px; }
+  .hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; font-weight: 600; font-size: 14px; border-bottom: none; }
+  .btn-primary { background: var(--accent); color: #0a0a0c; }
+  .btn-secondary { border: 1px solid var(--border); color: var(--text); background: var(--panel); }
+  .btn:hover { filter: brightness(1.1); }
+
+  /* MENUBAR DEMO */
+  .menubar-wrap { margin: 40px 0 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--panel); }
+  .menubar-strip { display: flex; align-items: center; padding: 8px 14px; gap: 16px; background: linear-gradient(180deg, #2a3a52 0%, #1b2638 100%); font-size: 13px; color: #e6e6eb; }
+  .menubar-strip .item { font-weight: 600; }
+  .menubar-strip .item.dim { color: rgba(230,230,235,0.7); font-weight: 500; }
+  .menubar-strip .ours { color: var(--accent); font-family: var(--mono); font-weight: 600; }
+  .menubar-strip .spacer { flex: 1; }
+  .menubar-strip .right { display: flex; gap: 10px; opacity: 0.55; }
+
+  /* DROPDOWN MOCK */
+  .dropdown { background: rgba(28,29,36,0.95); backdrop-filter: blur(20px); border: 1px solid var(--border); border-radius: 10px; margin: 16px auto 0; max-width: 560px; padding: 6px 0; box-shadow: 0 12px 48px rgba(0,0,0,0.6); font-size: 13px; }
+  .dd-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; cursor: default; }
+  .dd-row:hover { background: rgba(98,173,255,0.12); }
+  .dd-icon { width: 16px; text-align: center; }
+  .dd-icon.bolt { color: var(--accent); }
+  .dd-icon.moon { color: var(--muted); }
+  .dd-mono { font-family: var(--mono); font-size: 12px; }
+  .dd-row .cpu-hi { color: var(--accent); }
+  .dd-row .cpu-lo { color: var(--muted); }
+  .dd-sep { border-top: 1px solid var(--border); margin: 5px 0; }
+  .dd-head { padding: 8px 14px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; align-items: center; }
+  .dd-head .lock-on { color: var(--warn); }
+  .dd-head .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(52,199,89,0.15); color: var(--accent); font-family: var(--mono); font-size: 11px; }
+
+  /* SECTIONS */
+  h2 { font-family: var(--serif); font-size: 32px; margin: 0 0 8px; letter-spacing: -0.01em; font-weight: 500; }
+  h2 + p.lede { color: var(--muted); margin: 0 0 28px; font-size: 17px; }
+  h3 { font-family: var(--serif); font-size: 22px; margin: 40px 0 10px; font-weight: 500; }
+  p { margin: 0 0 16px; }
+  ul { padding-left: 22px; }
+  ul li { margin-bottom: 8px; }
+
+  /* QUOTES */
+  blockquote { margin: 22px 0; padding: 14px 20px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; color: #d0d0d6; font-family: var(--serif); font-size: 16px; line-height: 1.55; font-style: italic; }
+  blockquote cite { display: block; margin-top: 8px; font-style: normal; font-family: var(--sans); font-size: 13px; color: var(--muted); }
+  blockquote cite a { color: var(--link); }
+
+  /* GRID OF QUOTES */
+  .quotes { display: grid; grid-template-columns: 1fr; gap: 14px; margin: 24px 0; }
+
+  /* DIAGRAM */
+  .diagram { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 28px; font-family: var(--mono); font-size: 13px; line-height: 1.5; white-space: pre; overflow-x: auto; color: var(--muted); }
+  .diagram b { color: var(--text); font-weight: 600; }
+  .diagram .ok { color: var(--accent); }
+  .diagram .warn { color: var(--warn); }
+
+  /* TABLE */
+  table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td code { font-size: 12px; }
+
+  /* FOOTER */
+  footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+  /* SCREENSHOT FRAME */
+  .ssframe { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 16px 0; background: var(--panel); }
+  .ssframe img { display: block; width: 100%; }
+
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 38px; }
+    .wrap { padding: 32px 18px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section class="hero">
+  <div class="lock">macOS · menu bar app · open source</div>
+  <h1>Close the lid.<br><span class="accent">Keep the agent.</span></h1>
+  <p class="sub">A menu bar app that blocks macOS sleep — but only while a Claude Code agent is actually working. Walk away from the laptop. The agent keeps running. When it finishes, the Mac sleeps like normal.</p>
+  <div class="ctas">
+    <a class="btn btn-primary" href="https://github.com/Globarti/claude-nosleep">Get it on GitHub</a>
+    <a class="btn btn-secondary" href="#install">Install in 60 seconds</a>
+  </div>
+
+  <div class="menubar-wrap">
+    <div class="menubar-strip">
+      <span class="item">  </span>
+      <span class="item">Terminal</span>
+      <span class="item dim">File</span>
+      <span class="item dim">Edit</span>
+      <span class="item dim">View</span>
+      <span class="ours">⚡ 2/17</span>
+      <span class="spacer"></span>
+      <span class="right">
+        <span>◐</span><span>📶</span><span>🔋</span><span>14:23</span>
+      </span>
+    </div>
+    <div class="dropdown" style="margin-bottom: -1px; border-radius: 10px 10px 0 0;">
+      <div class="dd-head">
+        <span class="lock-on">⚿ Sleep blocked</span>
+        <span class="pill">2 working · 4 idle · 6 total</span>
+      </div>
+      <div class="dd-sep"></div>
+      <div class="dd-row"><span class="dd-icon bolt">⚡</span><span class="dd-mono">✓ Set up vinted-bot on Mac mini <span style="color:var(--muted)">▸</span></span></div>
+      <div class="dd-row"><span class="dd-icon bolt">⚡</span><span class="dd-mono">☕ Review and publish patient content <span style="color:var(--muted)">▸</span></span></div>
+      <div class="dd-row"><span class="dd-icon moon">🌙</span><span class="dd-mono">✓ Review D+D contract &amp; missing terms <span style="color:var(--muted)">▸</span></span></div>
+      <div class="dd-row"><span class="dd-icon moon">🌙</span><span class="dd-mono">✓ listmonk-twenty-crm-integration <span style="color:var(--muted)">▸</span></span></div>
+      <div class="dd-row"><span class="dd-icon moon">🌙</span><span class="dd-mono">☕ Debug ABC adaptive system issues <span style="color:var(--muted)">▸</span></span></div>
+      <div class="dd-sep"></div>
+      <div class="dd-row" style="color: var(--muted); font-size: 12px;">About Claude No-Sleep</div>
+    </div>
+  </div>
+  <p style="color: var(--muted); font-size: 13px; margin-top: 14px;">Each row is the <strong>chat's name</strong> — the AI-generated terminal-tab title. ⚡ green = working · 🌙 grey = idle · ⚠ orange = wedged (busy but silent &gt;90s → allow sleep). Badge: ✓ status flag · ☕ caffeinate-child · ⚠ wedge. The <span style="color:var(--muted)">▸</span> opens an instant submenu with that session's last 👤 prompt + 📝 recap.</p>
+
+  <figure style="margin: 48px 0 0;">
+    <img src="assets/hero-walking.png" alt="A developer walking down the street carrying an open MacBook, agent running in the terminal" style="width:100%; border-radius:14px; border:1px solid var(--border); display:block;">
+    <figcaption style="color: var(--muted); font-size: 13px; margin-top: 12px; text-align:center;">The whole point: close the lid (or don't), put it in the bag, and walk — the agent keeps running.</figcaption>
+  </figure>
+</section>
+
+<hr>
+
+<section>
+  <h2>The problem nobody talks about</h2>
+  <p class="lede">Vibe coders sit awkwardly next to laptops they can't close.</p>
+
+  <p>In February 2025, Andrej Karpathy <a href="https://x.com/karpathy/status/1886192184808149383">coined "vibe coding"</a>: <em>"give in to the vibes, embrace exponentials, and forget that the code even exists."</em> Within months, the agentic CLIs landed — Claude Code, Cursor, Codex CLI, Devin. They don't autocomplete. They take 5, 15, 30 minutes per turn and come back with diffs.</p>
+
+  <p>And here's the catch nobody warned you about: <strong>your Mac sleeps the moment you shut the lid.</strong> The agent — and everything it was halfway through — dies with it. On Apple Silicon, the lid is a hardware magnet. <code>caffeinate</code> can't override it. <code>pmset disablesleep 1</code> can't override it. Closing the lid <em>physically forces sleep</em>, no matter what you set in software.</p>
+
+  <p>So the world's most expensive AI coding tool spawned a new ritual: <strong>devs camping next to open laptops</strong>, refreshing the terminal, waiting for an agent to finish — too scared to walk away.</p>
+
+  <div class="quotes">
+    <blockquote>
+      You come back to a dark screen. Your Mac went to sleep. The terminal session is frozen. Twenty minutes of autonomous work — gone.
+      <cite>— Dima Osipa, <a href="https://dimaosipa.medium.com/my-mac-kept-falling-asleep-during-claude-code-sessions-so-i-built-an-app-to-fix-it-893c9f558ff2">Medium</a></cite>
+    </blockquote>
+    <blockquote>
+      When Claude works for a long time, my Mac may go to sleep and pause the agent. It's very annoying to return to the computer only to find that it hasn't been doing anything in the meantime.
+      <cite>— T. N. Granados, <a href="https://tngranados.com/blog/preventing-mac-sleep-claude-code/">tngranados.com</a></cite>
+    </blockquote>
+    <blockquote>
+      The first time you kick off two Claude sessions simultaneously and watch them both making progress without any interference, it genuinely changes how you think about AI-assisted development. You're not waiting — you're directing.
+      <cite>— Dan Mindru, <a href="https://www.dandoescode.com/blog/parallel-vibe-coding-with-git-worktrees">Parallel Vibe Coding with Git Worktrees</a></cite>
+    </blockquote>
+  </div>
+
+  <p>And as devs scaled up to "<strong>agent farms</strong>" — 4, 8, sometimes 16 Claude Code instances in parallel git worktrees — the don't-close-the-lid problem multiplied. Now <em>eight</em> agents die when the battery dips.</p>
+</section>
+
+<hr>
+
+<section>
+  <h2>What this fixes</h2>
+  <p class="lede">Sleep is suppressed only while a Claude process is actually doing work — not just running.</p>
+
+  <p>The existing tools — <code>caffeinate</code>, Amphetamine, KeepingYouAwake, Theine — all share the same flaw: <strong>they're manual switches</strong>. You toggle them on, you forget they're on, you murder your battery overnight. Or you toggle them off, forget, and lose an agent's work.</p>
+
+  <p>Claude No-Sleep is automatic and surgical:</p>
+  <ul>
+    <li><strong>Reads Claude Code's own busy/idle flag.</strong> Each running session writes its current state ("busy" / "idle") to <code>~/.claude/sessions/&lt;PID&gt;.json</code>. That's the canonical inter-process signal Claude itself uses — we just read it. Falls back to per-PID CPU% for older Claude Code versions that don't ship the flag yet.</li>
+    <li><strong>Catches hung sessions.</strong> If Claude reports "busy" but the transcript jsonl hasn't been touched in 90s, the session is wedged (stuck tool, infinite loop). We treat it as idle so the Mac can still sleep.</li>
+    <li><strong>Watches every 30 seconds.</strong> A launchd job runs the watcher, toggles <code>pmset disablesleep</code>, and writes a state file.</li>
+    <li><strong>Filters out orphan processes.</strong> Only counts Claude processes whose TTY belongs to an actually-open Terminal tab.</li>
+    <li><strong>Shows the truth in the menu bar.</strong> ⚡ green count when anything's working. 🌙 grey when everything's idle. 💤 when there's nothing at all.</li>
+    <li><strong>Releases sleep instantly when work ends.</strong> No "I forgot to turn it off" overnight battery drain.</li>
+  </ul>
+
+  <div class="ssframe">
+    <img src="screenshots/menubar.png" alt="Claude No-Sleep icon in the macOS menu bar">
+  </div>
+  <p style="color: var(--muted); font-size: 13px;">Live in the menu bar. Click for the dropdown with every session, CPU%, uptime, and a tooltip showing the last prompt + recap per session.</p>
+</section>
+
+<hr>
+
+<section>
+  <h2>How it works</h2>
+  <p class="lede">Three small files. One launchd job. Zero kernel hacks.</p>
+
+  <div class="diagram">┌───────────────────────────────────────────────────────────┐
+│ <b>launchd</b> (com.bartek.claude-nosleep, every 30s)         │
+│   └─▶ <b>claude-watch.py --apply</b>                            │
+│         ├─ ps -axo pid,command      → list claude PIDs    │
+│         ├─ AppleScript Terminal/iTerm2 → live TTY set     │
+│         ├─ <b>per-PID classify</b> (canonical → fallback):     │
+│         │   1. read ~/.claude/sessions/&lt;pid&gt;.json:        │
+│         │      <span class="ok">"busy"</span> + jsonl fresh   →  working          │
+│         │      <span class="ok">"busy"</span> + jsonl &gt;90s old →  wedged (idle)   │
+│         │      <span class="warn">"idle"</span>                 →  idle             │
+│         │   2. (no status field, old claude) → CPU ≥ 2%   │
+│         └─ <span class="ok">any working</span>  ? <span class="ok">pmset disablesleep 1</span>             │
+│                       : <span class="warn">pmset disablesleep 0</span>             │
+└───────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌───────────────────────────────────────────────────────────┐
+│ <b>SwiftBar plugin</b> (every 10s, UI only — no pmset writes) │
+│   └─▶ <b>claude-watch.py --status</b>                          │
+│         ├─ same collection as above                       │
+│         ├─ per-PID session map via                        │
+│         │     ~/.claude/sessions/&lt;pid&gt;.json → sessionId   │
+│         ├─ tail jsonl, extract last user prompt + recap   │
+│         └─ render SwiftBar menu (icon, dropdown, tooltips)│
+└───────────────────────────────────────────────────────────┘</div>
+
+  <p>The two trickiest bits worth highlighting:</p>
+
+  <h3>Why <code>status</code>, not CPU (anymore)</h3>
+  <p>The first version sampled per-PID <code>%CPU</code> and called anything above 2% "working". It worked, but had two failure modes: a hung Claude process burning CPU in a loop counted as working forever, and a session waiting on a long Anthropic streaming response could briefly dip below the threshold and be misclassified as idle. We dug into the Claude Code source and found <code>~/.claude/sessions/&lt;PID&gt;.json</code> — Claude itself writes its current <code>status</code> field to that file on every tool-start, tool-end, and API-response-complete edge. It's the inter-process activity channel Claude uses internally, so we use it too. CPU stays as a fallback for old Claude Code versions (pre-2.1.158) where the field doesn't exist yet.</p>
+
+  <h3>Wedge detection</h3>
+  <p>A status flag is only as reliable as the process that writes it. If Claude itself hangs (kernel level stuck syscall, runaway Bash tool, whatever) the file freezes at <code>"busy"</code> forever. We catch that by cross-checking the transcript: <code>~/.claude/projects/&lt;cwd&gt;/&lt;sessionId&gt;.jsonl</code> gets appended on every assistant token, every tool result, every system event. If <code>status=="busy"</code> but the jsonl has been silent for 90 seconds, the session is wedged — we mark it ⚠ and let the Mac sleep.</p>
+
+  <h3>Per-session tooltips via <code>~/.claude/sessions/&lt;pid&gt;.json</code></h3>
+  <p>For the tooltip on each row, we need to know which jsonl belongs to which PID. The same session manifest gives us that: it carries <code>sessionId</code> and <code>cwd</code>, from which we derive the exact transcript path, then pull the last <code>last-prompt</code> event and the most recent <code>system / subtype=away_summary</code> (Claude's internal name for "recap").</p>
+</section>
+
+<hr>
+
+<section id="install">
+  <h2>Install</h2>
+  <p class="lede">Under a minute. Two Homebrew casks and one repo clone.</p>
+
+  <pre><code># 1. Install SwiftBar (menu bar host) and Ice (menu bar manager — required if
+#    your MacBook has the notch; SwiftBar's slot is otherwise hidden behind it).
+brew install --cask swiftbar jordanbaird-ice
+
+# 2. Clone this repo
+git clone https://github.com/Globarti/claude-nosleep.git
+cd claude-nosleep
+
+# 3. Drop the watcher and helper script into ~/.claude/nosleep/
+mkdir -p ~/.claude/nosleep ~/SwiftBarPlugins
+cp claude-watch.py focus-tty.sh ~/.claude/nosleep/
+chmod +x ~/.claude/nosleep/{claude-watch.py,focus-tty.sh}
+
+# 4. Drop the SwiftBar plugin
+cp swiftbar-plugin.sh ~/SwiftBarPlugins/claude-nosleep.10s.sh
+chmod +x ~/SwiftBarPlugins/claude-nosleep.10s.sh
+defaults write com.ameba.SwiftBar PluginDirectory -string "$HOME/SwiftBarPlugins"
+
+# 5. Drop the launchd job and start it
+cp com.bartek.claude-nosleep.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.bartek.claude-nosleep.plist
+
+# 6. Launch SwiftBar (and Ice if you have a notch MacBook)
+open -a SwiftBar
+open -a Ice</code></pre>
+
+  <p>Verify it's working:</p>
+  <pre><code>pmset -g | grep SleepDisabled    # should be 1 if any Claude is using CPU
+~/.claude/nosleep/claude-watch.py --status  # raw plugin output</code></pre>
+</section>
+
+<hr>
+
+<section>
+  <h2>Requirements</h2>
+  <table>
+    <tr><th>What</th><th>Why</th></tr>
+    <tr><td>macOS 13+ (Ventura or later)</td><td>SwiftBar 2.x + sfimage menu bar items</td></tr>
+    <tr><td>Claude Code installed</td><td>This tool is specifically about Claude Code sessions</td></tr>
+    <tr><td>NOPASSWD sudo for <code>pmset</code></td><td>The watcher runs <code>sudo pmset disablesleep</code> non-interactively. Either grant NOPASSWD: ALL or scope to <code>/usr/bin/pmset</code>.</td></tr>
+    <tr><td>Python 3.9+ (system default works)</td><td>No external deps. Uses only stdlib.</td></tr>
+  </table>
+</section>
+
+<hr>
+
+<section>
+  <h2>Sleep blocking with the lid closed</h2>
+  <p>This is the part nobody else gets right. On Apple Silicon, closing the lid puts the Mac to sleep via the hardware magnet — <code>caffeinate</code>, third-party menu bar apps, and even <code>pmset disablesleep 1</code> normally don't bypass it.</p>
+  <p>The watcher writes to both <code>-c</code> (on AC power) and <code>-b</code> (on battery) variants of <code>pmset disablesleep</code>. With a charger plugged in, clamshell sleep is suppressed; the Mac genuinely keeps running with the lid shut. On battery, this is risky (we drained one to 0% finding out the hard way), so the recommended setup is: <strong>lid-closed work happens only while plugged in</strong>.</p>
+</section>
+
+<hr>
+
+<section>
+  <h2>⚠️ A new genre of warm backpack</h2>
+  <p class="lede">The flip side of "close the lid, keep the agent": now your MacBook Pro runs full-tilt inside your bag.</p>
+
+  <p>Here's the thing nobody mentions about winning this fight. The whole point of the tool is that <strong>closing the lid no longer stops the machine.</strong> Which is great — until you slide that still-running, agent-crunching, fans-spinning MacBook Pro into a padded backpack and walk to your next meeting.</p>
+
+  <p>Congratulations: you now own a 2.1 kg hand warmer. An M-series chip mid-agent-run pulls real watts, and a closed laptop in a zipped bag has nowhere to dump that heat. The aluminum chassis turns into a radiator with no airflow. People are about to learn this the hard way — <strong>a generation of MacBook Pros quietly cooking in backpacks</strong> because the agent was "almost done" when they left the desk.</p>
+
+  <p>So treat this as the fine print: <em>Claude No-Sleep keeps your agent alive when you walk away — it does not keep your laptop cool.</em> If you're going to carry it hot:</p>
+  <ul>
+    <li><strong>Leave the bag open</strong>, or at least don't seal a thermally-active machine in foam.</li>
+    <li><strong>Watch the menu bar before you pack.</strong> ⚡ green = it's still working = it's still making heat. 🌙 grey = safe to zip up.</li>
+    <li><strong>On battery, just let it sleep.</strong> A hot laptop draining to 0% in your bag is the worst of both worlds — that's exactly the failure mode the wedge/idle logic is built to avoid.</li>
+  </ul>
+  <p style="color: var(--muted); font-size: 14px;">The honest summary: this tool solves "my agent died when I closed the lid." It politely introduces a new problem — "my agent is alive and so is the heat." Pack accordingly.</p>
+</section>
+
+<hr>
+
+<section>
+  <h2>What it doesn't do</h2>
+  <ul>
+    <li>It doesn't keep your <strong>display</strong> on. Sleep is about the whole system; the screen can dim or turn off freely.</li>
+    <li>It doesn't watch Cursor, Aider, Codex CLI, or other agents — only Claude Code processes. The detection is process-name based and easy to extend; PRs welcome.</li>
+    <li>It doesn't simulate keyboard input or jiggle the mouse. It uses the macOS power management API the right way.</li>
+    <li>It doesn't ship as a notarized DMG. It's a 350-line Python file + a launchd plist. Read it.</li>
+  </ul>
+</section>
+
+<hr>
+
+<section>
+  <h2>FAQ</h2>
+
+  <h3>How is this different from Amphetamine / KeepingYouAwake?</h3>
+  <p>Those are toggles you flip by hand. They're either on (battery dies overnight) or off (your agent dies mid-PR). This watches your actual workload and flips the toggle for you — only while it matters.</p>
+
+  <h3>Why not just use <code>caffeinate -dimsu -w &lt;pid&gt;</code>?</h3>
+  <p>Because <code>caffeinate</code> doesn't bypass lid-close sleep on Apple Silicon. <code>pmset disablesleep 1</code> does. And tying it to <code>-w &lt;pid&gt;</code> means closing the terminal also kills the keep-awake — exactly when you don't want it to.</p>
+
+  <h3>The icon isn't showing up in my menu bar.</h3>
+  <p>On a notch MacBook with many menu bar items, SwiftBar's slot can be allocated <em>behind</em> the notch. Install <a href="https://icemenubar.app/">Ice</a> (we recommend this in the install steps) — it manages overflow correctly. Or remove a few system icons (Stage Manager, AirPods Status) from Control Center to free space.</p>
+
+  <h3>Will closing the lid drain my battery to zero?</h3>
+  <p>If you closed the lid <em>while an agent was actively burning CPU</em>, on battery, yes — it'll keep running until empty. We learned this. Use a charger for lid-closed work, or accept the risk for short bursts.</p>
+
+  <h3>Is the data in the tooltips sent anywhere?</h3>
+  <p>No. Everything is read locally from <code>~/.claude/projects/&lt;cwd&gt;/&lt;session&gt;.jsonl</code> and rendered into the menu. The watcher has no network code at all.</p>
+</section>
+
+<hr>
+
+<section>
+  <h2>What else exists</h2>
+  <table>
+    <tr><th>Tool</th><th>What it does</th></tr>
+    <tr><td><code>caffeinate</code></td><td>Built-in CLI. <code>caffeinate -dims claude</code>. Doesn't beat the lid magnet.</td></tr>
+    <tr><td><a href="https://amphetamine.app/">Amphetamine</a></td><td>Best-in-class manual stay-awake with triggers. Still a toggle.</td></tr>
+    <tr><td><a href="https://github.com/newmarcel/KeepingYouAwake">KeepingYouAwake</a></td><td>Minimal open-source <code>caffeinate</code> wrapper in the menu bar.</td></tr>
+    <tr><td><a href="https://theinemac.com/">Theine</a></td><td>Pretty timer-based stay-awake from the App Store.</td></tr>
+    <tr><td><strong>Claude No-Sleep</strong></td><td>The only one that watches your agent's actual work and toggles automatically.</td></tr>
+  </table>
+</section>
+
+<footer>
+  <div>made by <a href="mailto:Thebartglowacki@gmail.com">Thebartglowacki@gmail.com</a></div>
+  <div>MIT license · <a href="https://github.com/Globarti/claude-nosleep">source on GitHub</a></div>
+</footer>
+
+</div>
+</body>
+</html>
